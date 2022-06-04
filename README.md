@@ -50,8 +50,8 @@ You should get the SQL queries in `results.sql`.  The evaluation results are dif
 ##### Evaluation results of converting gold NatSQL with values into SQL:
 |    | Train <br /> Exact Match |  Train<br /> Execution Match  | Dev<br /> Exact Match  | Dev<br /> Execution Match  |
 | ----------- | ------------------------------------- | -------------------------------------- |-------------------------------------- |-------------------------------------- |
-| NatSQL<sub>G</sub>    | 96.7%                        | 95.7%                      |  96.6%                        | 97.3%                      | 
-| NatSQL | 92.8%                          | 93.8%                      |  92.3%                        | 93.1%                      | 
+| NatSQL<sub>G</sub>    | 96.6%                        | 95.7%                      |  97.3%                        | 96.8%                      | 
+| NatSQL | 92.9%                          | 93.8%                      |  92.7%                        | 93.4%                      | 
 
 
 ### Step 3: Convert NatSQL without Values to Executable SQL
@@ -67,10 +67,21 @@ Run `natsql2sql_without_values.sh [train/dev] [natsql/natsqlg]` to convert the N
 ##### Evaluation results of converting gold NatSQL without values into executable SQL:
 |    | Train <br /> Exact Match |  Train<br /> Execution Match  | Dev<br /> Exact Match  | Dev<br /> Execution Match  |
 | ----------- | ------------------------------------- | -------------------------------------- |-------------------------------------- |-------------------------------------- |
-| NatSQL<sub>G</sub>    | 96.6%                        | 94.6%                      |  97.7%                        | 96.4%                      | 
-| NatSQL | 92.8%                          | 92.9%                      |  93.8%                        | 92.8%                      | 
+| NatSQL<sub>G</sub>    | 96.5%                        | 94.8%                      |  97.7%                        | 96.6%                      | 
+| NatSQL | 92.9%                          | 92.9%                      |  93.8%                        | 92.8%                      | 
 
 
+
+
+## NatSQL V1.6.1
+The NatSQL version introduced in our NatSQL paper is V1.6.
+The V1.6.1 version was used in [Spider-SS](https://github.com/ygan/SpiderSS-SpiderCG).
+It extends set operators for NatSQL and corrects some annotation errors from the original Spider dataset. Therefore, exact match and execution match accuracy in `./NatSQLv1_6_1` are significantly lower than that in `./NatSQLv1_6`.
+This version is not for chasing the Spider leaderboard but is proposed to give a closer NatSQL query to the natural language question.
+
+
+## About SQL2NatSQL
+We have not completed the SQL2NatSQL conversion code at present. We welcome contributions to NatSQL.
 
 
 ## Acknowledgement

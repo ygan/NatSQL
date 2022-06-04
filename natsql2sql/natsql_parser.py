@@ -2,14 +2,14 @@
 # https://github.com/taoyds/spider/blob/master/process_sql.py
 
 
-from natsql2sql.natsql2sql import inference_sql,Args,natsql_version as n_version
+from .natsql2sql import inference_sql,Args,natsql_version as n_version
 import sqlite3
 import sys,os,copy
 from nltk import word_tokenize
-from natsql2sql.process_sql import get_tables_with_alias, Schema, get_schema
-from natsql2sql.process_sql import parse_sql as parse_sql_original
-from natsql2sql.process_sql import tokenize as tokenize_original
-from natsql2sql.preprocess.sql_back import sql_back
+from .process_sql import get_tables_with_alias, Schema, get_schema
+from .process_sql import parse_sql as parse_sql_original
+from .process_sql import tokenize as tokenize_original
+from .preprocess.sql_back import sql_back
 
 CLAUSE_KEYWORDS = ('select', 'from', 'where', 'group', 'order', 'limit', 'intersect', 'union', 'except', 'distinct')
 CLAUSE_KEYWORDS2 = ('select', 'from', 'where', 'group', 'order', 'limit', 'intersect', 'union', 'except')

@@ -31,6 +31,7 @@ def construct_hyper_param():
     parser.add_argument('--add_alpha_to_table', action='store_true', default=False)#For syntaxSQL. Here is True, modify_column_names is True
     
     parser.add_argument('--correct_col_type', action='store_true', default=False)
+    parser.add_argument('--use_extra_col_types', action='store_true', default=False)
 
     parser.add_argument('--remove_start_table', action='store_true', default=False)
 
@@ -164,6 +165,14 @@ def table_transform(table, args, schema):
                 new_table['primary_keys'][item_index] = nidx
                 item_index += 1
                 break
+    if 'original_primary_keys' in new_table:
+        item_index = 0
+        for pkey in new_table['original_primary_keys']:
+            for nidx,oidx in new_table['link_back']:
+                if oidx == pkey:
+                    new_table['original_primary_keys'][item_index] = nidx
+                    item_index += 1
+                    break
     break_token = 0
     item_index = 0
     for fkey_1,fkey_2 in new_table['foreign_keys']:
@@ -521,12 +530,11 @@ def create_mini_network(network,table):
                     if to_all_table not in table_all:
                         table_all.append(to_all_table)
                         tmp_net.append(new_net)
-                        # print("PPPPPP")
     network.extend(tmp_net)
     return network
 
 
-def re_identify_boolean_type(tables):
+def re_identify_boolean_type(tables,use_extra_col_types):
     for db_i,table in enumerate(tables):
         print()
         print(tables[db_i]['db_id'] + " " + str(db_i))
@@ -575,8 +583,12 @@ def re_identify_boolean_type(tables):
             elif col[1] == 4: # YEAR
                 if tables[db_i]['column_types'][i+1] != "year":
                     print(tables[db_i]['column_names'][i+1][1]+" "+tables[db_i]['column_types'][i+1]+" --> year")
-                tables[db_i]['column_types'][i+1] = "year"
-                tables[db_i]['column_types_checked'][i+1] = "year"
+                if use_extra_col_types:
+                    tables[db_i]['column_types'][i+1] = "year"
+                    tables[db_i]['column_types_checked'][i+1] = "year"
+                else:
+                    tables[db_i]['column_types'][i+1] = "number"
+                    tables[db_i]['column_types_checked'][i+1] = "number"
             else:
                 pass
 
@@ -724,6 +736,7 @@ def seperate_col_name(tables,all_words,schemas):
 
 def correct_primary_keys(tables,schemas):
     for it, table,schema in zip(range(len(tables)),tables,schemas):
+        table['original_primary_keys'] = copy.deepcopy(table['primary_keys'])
         same_col_idxs = []
         all_pair = []
         try:
@@ -877,7 +890,7 @@ if __name__ == '__main__':
         label_disjoint_tables(tables)
     
     if args.correct_col_type:
-        tables = re_identify_boolean_type(tables)
+        tables = re_identify_boolean_type(tables,args.use_extra_col_types)
         tables = unifie_words(tables)
 
     if args.remove_start_table:

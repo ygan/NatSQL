@@ -1,13 +1,12 @@
 import os,copy
 import re
-from natsql2sql.preprocess.match import COUNTRYS_DICT,S_ADJ_WORD_DIRECTION,AGG_WORDS,AGG_OPS,WHERE_STOP_WORDS as STOP_WORDS,STOP_WORDS as ALL_STOP_WORDS,ABSOLUTELY_GRSM_DICT,RELATED_WORD,NEGATIVE_WORDS,SPECIAL_DB_WORD,INFORMATION_WORDS,ABSOLUTELY_GREATER_DICT,ABSOLUTELY_SMALLER_DICT,ALL_JJS,SELECT_FIRST_WORD,NOT_STAR_WORD,ALL_IMPORTANT_PATTERN_TOKENS
-from natsql2sql.preprocess.utils import str_is_num,number_back,str_is_date,look_for_closest_table_idx,is_there_sgrsm_and_gr_or_sm,get_punctuation_word
-from natsql2sql.preprocess.TokenString import SToken as Token
-from natsql2sql.preprocess.col_match import of_for_structure_in_col
-from natsql2sql.preprocess.db_match import datebase_match_tables,return_result,get_match_col,get_database_string
-from natsql2sql.preprocess.Schema_Token import Schema_Token
-# from natsql2sql.preprocess.all_pattern import *
-from natsql2sql.preprocess.stemmer import MyStemmer
+from .match import COUNTRYS_DICT,S_ADJ_WORD_DIRECTION,AGG_WORDS,AGG_OPS,WHERE_STOP_WORDS as STOP_WORDS,STOP_WORDS as ALL_STOP_WORDS,ABSOLUTELY_GRSM_DICT,RELATED_WORD,NEGATIVE_WORDS,SPECIAL_DB_WORD,INFORMATION_WORDS,ABSOLUTELY_GREATER_DICT,ABSOLUTELY_SMALLER_DICT,ALL_JJS,SELECT_FIRST_WORD,NOT_STAR_WORD,ALL_IMPORTANT_PATTERN_TOKENS
+from .utils import str_is_num,number_back,str_is_date,look_for_closest_table_idx,is_there_sgrsm_and_gr_or_sm,get_punctuation_word
+from .TokenString import SToken as Token
+from .col_match import of_for_structure_in_col
+from .db_match import datebase_match_tables,return_result,get_match_col,get_database_string
+from .Schema_Token import Schema_Token
+from .stemmer import MyStemmer
 
 DISTINCT_WORDS = ["distinct","different","distinctive","unique"]
 

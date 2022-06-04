@@ -319,7 +319,7 @@ def sql_back(sql, table):
     order = orderby_string_back_based_idx(sql["orderBy"],sql["limit"],table)
     sql_str = select + from_ + where + group +  having + order
     if sql['intersect']:
-        if type(sql['union']) == dict:
+        if type(sql['intersect']) == dict:
             sql_str = sql_str + " intersect " + sql_back(sql['intersect'], table)
         else:
             sql_str = sql_str + " intersect select" + select_col_num_val_back(sql['intersect'], table)

@@ -1,4 +1,4 @@
-from natsql2sql.preprocess.others_pattern import create_pattern_toks
+from .others_pattern import create_pattern_toks
 
 def pattern_for_skip(pattern,sentence_ts,table_match,col_match,entt,schema,db_match,table_idx,negative):
     return 5,0,0,pattern

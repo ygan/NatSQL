@@ -2,9 +2,9 @@ import json
 import pickle
 from spacy.symbols import ORTH, LEMMA
 import editdistance
-from natsql2sql.preprocess.TokenString import SToken as Token
-from natsql2sql.preprocess.match import word_is_grsm,ABSOLUTELY_GRSM_DICT,ABSOLUTELY_GREATER,ABSOLUTELY_SMALLER,NOT_STAR_WORD
-from natsql2sql.preprocess.utils import str_is_num,is_there_sgrsm_and_gr_or_sm
+from .TokenString import SToken as Token
+from .match import word_is_grsm,ABSOLUTELY_GRSM_DICT,ABSOLUTELY_GREATER,ABSOLUTELY_SMALLER,NOT_STAR_WORD
+from .utils import str_is_num,is_there_sgrsm_and_gr_or_sm
 
 
 def cover_by_punt(tokens,i):

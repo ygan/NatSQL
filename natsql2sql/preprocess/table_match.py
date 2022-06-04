@@ -1,7 +1,7 @@
 import json
-from natsql2sql.preprocess.TokenString import TokenString, get_spacy_tokenizer
-from natsql2sql.preprocess.Schema_Token import Schema_Token
-from natsql2sql.preprocess.stemmer import MyStemmer
+from .TokenString import TokenString, get_spacy_tokenizer
+from .Schema_Token import Schema_Token
+from .stemmer import MyStemmer
 lstem = MyStemmer()
 
 # The STOP_WORDS is adapted from https://github.com/benbogin/spider-schema-gnn/blob/02f4ae43b891f41909215e889e37fbc084f982e1/semparse/contexts/spider_db_context.py

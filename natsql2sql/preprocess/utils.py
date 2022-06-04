@@ -1,6 +1,6 @@
 import copy,re
-from natsql2sql.preprocess.match import STOP_WORDS,S_ADJ_WORD_DIRECTION
-from natsql2sql.preprocess.stemmer import MyStemmer
+from .match import STOP_WORDS,S_ADJ_WORD_DIRECTION
+from .stemmer import MyStemmer
 
 
 def is_float(s):

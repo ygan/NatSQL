@@ -1,6 +1,6 @@
-from natsql2sql.utils import *
+from .utils import *
 import copy
-from natsql2sql.preprocess.stemmer import MyStemmer
+from .preprocess.stemmer import MyStemmer
 
 SQL_TOP = 1 # top sql, based on 'except', 'intersect', 'union'
 SQL_SUB = 2 # sub sql, 
@@ -35,7 +35,7 @@ SQL_SUBSUB = 3 # sub-sub sql, based on 'sub'
 #Optimize for table net
 
 def natsql_version():
-    return "1.6"
+    return "1.6.1"
 
 class Args():
     def __init__(self):
@@ -48,6 +48,9 @@ class Args():
         self.use_from_info = False
         self.print = False
         self.fill_value = True
+        self.join2subquery = False
+        self.iue2subquery = True
+        self.groupby2subquery = False
 
 class table_With_FK:
     def __init__(self, table, keys):
@@ -143,6 +146,7 @@ def get_where_column(sql_dict, table_list, start_index, sql_type, table_json, ar
     last_column_type = None
     see_sub_sql = False
 
+    left_col_list = []
     next_table_list = []
     sql_str = " "
     having = " "
@@ -242,8 +246,12 @@ def get_where_column(sql_dict, table_list, start_index, sql_type, table_json, ar
                             if sql_str.strip() and not sql_str.strip().endswith("and") and not sql_str.strip().endswith("or"):
                                 sql_str += " and "
                             sql_str += column[2][1][1].lower() + " " + WHERE_OPS[column[1]] + " (@@@) "
-                table = table_left.lower() 
+                table = table_left.lower()
+                if not column[2][1][0] and column[2][1][1] != "@.@":
+                    left_col_list.append(column[2][1][1].lower())
             elif not see_sub_sql:
+                if not column[2][1][0]:
+                    left_col_list.append(column[2][1][1].lower())
                 table = column[2][1][1].split('.')[0].lower()
                 if column[2][1][1] == "@.@" and idx >= 2: #V1.2
                     column[2][1][1] = sql_dict['where'][idx-2][2][1][1]
@@ -273,11 +281,11 @@ def get_where_column(sql_dict, table_list, start_index, sql_type, table_json, ar
 
     having = having if having == " " else " having " + having 
 
-    return break_idx, table_list, next_type, sql_str, having, order_by, next_table_list
+    return break_idx, table_list, next_type, sql_str, having, order_by, next_table_list, left_col_list
 
 
 
-def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=None, sql_dict=None):
+def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=None, sql_dict=None, group_list=None):
 
     def create_foreign_key(table_json, table_idx_list, restrict = True):
         """
@@ -349,7 +357,7 @@ def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=
                 if c_n[0] == table_idx_list[0]:
                     for j,c_n2,c_on2 in zip(range(len(table_json['column_names'])), table_json['column_names'],table_json['column_names_original']):
                         if c_n2[0] == table_idx_list[1]:
-                            if (c_n[1] ==  c_n2[1] and c_n[1] not in ["id","name","ids","*"]) or (c_on[1] ==  c_on2[1] and c_on[1] not in ["id","name","ids","*"]):
+                            if table_json['column_types_checked'][j] == table_json['column_types_checked'][i] and ((c_n[1] ==  c_n2[1] and c_n[1] not in ["id","name","ids","*"]) or (c_on[1] ==  c_on2[1] and c_on[1] not in ["id","name","ids","*"])):
                                 return [[[i,j]],table_idx_list]
 
             # try to directly use the foreign key to join
@@ -369,6 +377,21 @@ def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=
                 else:        
                     return [[[pkey[0][0],pkey[1][0]]],[pkey[0][1],pkey[1][1]]]
             
+            if not r_:
+                pkey = []
+                for k in table_json['original_primary_keys']:
+                    if table_json['column_names'][k][0] in table_idx_list:
+                        pkey.append([k,table_json['column_names'][k][0]])
+                if len(pkey) == 2:
+                    if restrict:
+                        r_ = restrict_check(table_json,pkey)
+                        if r_:
+                            return r_
+                    else:
+                        tale_net = super_key_create_2_to_3(table_json,pkey)
+                        if tale_net:
+                            return tale_net
+                        return [[[pkey[0][0],pkey[1][0]]],[pkey[0][1],pkey[1][1]]]
         return r_
             
     def get_fk_network(table_json, table_list, return_num=1):
@@ -498,10 +521,10 @@ def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=
             count1 = 0
             count2 = 0
             for w in cols1:
-                if w in " " + sq.question_or + " ":
+                if w in " " + sq.question_or + " " or w in " " + sq.question_lemma + " ":
                     count1 += 1
             for w in cols2:
-                if w in " " + sq.question_or + " ":
+                if w in " " + sq.question_or + " " or w in " " + sq.question_lemma + " ":
                     count2 += 1
             if count1 > count2:
                 return idx2
@@ -654,6 +677,17 @@ def get_table_network(table_json, table_list, join_on_label, re_single=True, sq=
                 return net3,table_fk_list
             else:
                 return [net3],table_fk_list
+
+    idx = 0
+    if from_table_net and group_list:
+        table_list = [table_json["column_names"][table_json["tc_fast"].index(col)][0] for col in group_list]
+        table_list = list(set(table_list))
+        if len(table_list) >= 1:
+            for i, net in enumerate(from_table_net):
+                join_cols = [c for cols in net[0] for c in cols if c in table_json['primary_keys'] and table_json['column_names'][c][0] in table_list ]
+                if join_cols:
+                    idx = i 
+                    break
     if from_table_net and re_single:
         if join_on_label:
             global globe_join_on_label_count
@@ -763,7 +797,7 @@ def maybe_order_by(sql_dict, table_list, idx, start_index, next_sql_type, sql_ty
 
     if (sql_dict['where'][idx][3][0] == 1 or sql_dict['where'][idx][3][0] == 2) and sql_dict['where'][idx][2][1][1] == sql_dict['where'][idx][3][1] and sql_dict['where'][idx][1] == 2: # sql_dict['where'][idx][1] == 2 means '='
         break_idx,next_type = (idx, SQL_SUB) if (idx > start_index and not next_sql_type) or (sql_type_now == SQL_TOP and not next_sql_type) else (idx,next_sql_type)
-        break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list = get_where_column(sql_dict, table_list, break_idx + 1, next_type, table_json, args)
+        break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list,_ = get_where_column(sql_dict, table_list, break_idx + 1, next_type, table_json, args)
         if (not next_sql and len(sql_dict['where']) == idx + 1) or (next_sql and break_idx <= idx + 2): # the end of the sql or sub sql.
             if next_sql_type: # make it pass for next if check in get_where_column
                 return ' '
@@ -816,10 +850,15 @@ def orderby_to_subquery(sql_dict,tb_list):
     return orderby_sql,tb_list
 
 
-def primary_keys(table_json,table_id):
+def primary_keys(table_json,table_id,pk_only=False):
     for key in table_json['primary_keys']:
         if table_json['column_names'][key][0] == table_id:
             return key
+    for key in table_json['original_primary_keys']:
+        if table_json['column_names'][key][0] == table_id:
+            return key
+    if pk_only and table_json['primary_keys']:
+        return -1
     for key,col in enumerate(table_json['column_names']):
         if table_json['column_names'][key][0] == table_id:
             col_n = table_json['column_names'][key][1].lower().strip()
@@ -828,6 +867,13 @@ def primary_keys(table_json,table_id):
             if col_n  in ["id","ids"]:
                 return key
     return -1
+
+def contain_bridge_table(table_list, bridge_tables):
+    for b in bridge_tables:
+        if b in table_list:
+            return True
+    return False
+
 
 def infer_at_col(column,table_list,table_json):
     """V1.2
@@ -846,6 +892,13 @@ def infer_at_col(column,table_list,table_json):
                     return True,fk[1],fk[0]
                 elif table_json['column_names'][fk[1]][0] == r_table and table_json['column_names'][fk[0]][0] == l_table:
                     return True,fk[0],fk[1]
+            for net in table_json['network']:
+                if len(net[1]) == 3 and r_table in net[1] and l_table in net[1] and r_table not in table_json['bridge_table'] and l_table not in table_json['bridge_table'] and contain_bridge_table(net[1], table_json['bridge_table']):
+                    for fk in net[0]:
+                        if table_json['column_names'][fk[0]][0] == l_table and table_json['column_names'][fk[1]][0] in table_json['bridge_table']:
+                            return True,fk[0],fk[1]
+                        elif table_json['column_names'][fk[1]][0] == l_table and table_json['column_names'][fk[0]][0] in table_json['bridge_table']:
+                            return True,fk[1],fk[0]
         return False,0,0
 
     def find_col(l_tables,r_table,r_col,table_json):
@@ -1023,7 +1076,7 @@ def intersect_inference(wheres,sq):
                 wheres = replace_str_for_inference(wheres,2,6,sq,middle=3)
             else:
                 wheres = replace_str_for_inference(wheres,2,4,sq)
-        elif (len(wheres) == 7 and wheres[1] == "and" and wheres[3] == "and" and wheres[5] == "and") and ((wheres[0][2][1][1] == wheres[4][2][1][1] and wheres[2][2][1][1] == wheres[6][2][1][1]) or (wheres[2][2][1][1] == wheres[4][2][1][1] and wheres[0][2][1][1] == wheres[6][2][1][1])):
+        elif (len(wheres) == 7 and wheres[1] == "and" and wheres[3] == "and" and wheres[5] == "and") and not(wheres[0][1] == wheres[4][1] and wheres[0][1] in [8,12] and wheres[0][3][1] != wheres[4][3][1]) and ((wheres[0][2][1][1] == wheres[4][2][1][1] and wheres[2][2][1][1] == wheres[6][2][1][1]) or (wheres[2][2][1][1] == wheres[4][2][1][1] and wheres[0][2][1][1] == wheres[6][2][1][1])):
             if wheres[2][2][1][1] == wheres[6][2][1][1]:
                 wheres = replace_str_for_inference(wheres,2,6,sq,middle=3)
             else:
@@ -1038,7 +1091,9 @@ def union_inference(wheres,sq,table_json,top_select_table_list):
     try:
         if len(wheres) == 5 and wheres[1] == "or" and wheres[3] == "and":
             wheres[1] = "union_"
-        elif len(wheres) == 5 and wheres[1] == "and" and wheres[3] == "or" and (((wheres[4][2][1][0] != 0 or wheres[2][2][1][0] != 0) and (wheres[4][2][1][1] != wheres[2][2][1][1] or ".*" in wheres[4][2][1][1] or ".*" in wheres[2][2][1][1])) or wheres[4][1] == 15):
+        elif len(wheres) == 7 and wheres[1] == "and" and wheres[3] == "or" and wheres[5] == "and" and ((wheres[0][2][1] ==  wheres[4][2][1] and wheres[2][2][1] ==  wheres[6][2][1]) or (wheres[0][2][1] ==  wheres[6][2][1] and wheres[2][2][1] ==  wheres[4][2][1])):
+            wheres[3] = "union_"
+        elif len(wheres) == 5 and wheres[1] == "and" and wheres[3] == "or" and not (wheres[0][1] == 15 and wheres[2][2][1][1].split(".")[0] == wheres[4][2][1][1].split(".")[0]): #and (((wheres[4][2][1][0] != 0 or wheres[2][2][1][0] != 0) and (wheres[4][2][1][1] != wheres[2][2][1][1] or ".*" in wheres[4][2][1][1] or ".*" in wheres[2][2][1][1])) or wheres[4][1] == 15):
             wheres[3] = "union_"
         elif len(wheres) == 5 and wheres[1] == "or" and wheres[0][2][1][1] == "@.@":
             wheres[1] = "union_"
@@ -1046,7 +1101,7 @@ def union_inference(wheres,sq,table_json,top_select_table_list):
             wheres[3] = "union_"
         elif len(wheres) == 3 and wheres[1] == "or" and (((wheres[0][2][1][0] != 0 or wheres[2][2][1][0] != 0) and (wheres[0][2][1][1] != wheres[2][2][1][1] or ".*" in wheres[0][2][1][1] or ".*" in wheres[2][2][1][1])) or wheres[2][1] == 15):
             wheres[1] = "union_"
-        elif len(wheres) == 3 and wheres[1] == "or" and wheres[0][2][1][1] == "@.@":
+        elif len(wheres) == 3 and wheres[1] == "or" and wheres[0][2][1][1] == "@.@" and not (wheres[2][2][1][1] == "@.@" and wheres[0][1] == wheres[2][1] and wheres[0][3][1].split(".")[0] == wheres[2][3][1].split(".")[0]):
             wheres[1] = "union_"
         elif len(wheres) == 3 and wheres[1] == "or" and wheres[2][1] == 2 and wheres[0][1] not in [8,12,15]:
             left = wheres[0][2][1][1].split(".")
@@ -1062,7 +1117,7 @@ def union_inference(wheres,sq,table_json,top_select_table_list):
                         top_select_table_list.append(table_json['table_names_original'][tb[0]])
                 if right[0] not in top_select_table_list:
                     wheres[1] = "union_"
-        elif len(wheres) == 7 and wheres[3] == "or" and wheres[5] == "and":
+        elif len(wheres) == 7 and wheres[3] == "or" and wheres[5] == "and" and not(wheres[0][1] == wheres[4][1] and wheres[0][1] in [8,12] and wheres[0][3][1] != wheres[4][3][1]):
             wheres[3] = "union_"
     except:
         pass
@@ -1072,7 +1127,7 @@ def union_inference(wheres,sq,table_json,top_select_table_list):
 
 def except_inference(wheres,sq):
     try:
-        if ((len(wheres) == 3 and wheres[1] == "and") or (len(wheres) == 5 and wheres[1] == "and" and wheres[3] == "and")) and wheres[2][1] == 7:
+        if ((len(wheres) == 3 and wheres[1] == "and") or (len(wheres) == 5 and wheres[1] == "and" and wheres[3] == "and")) and wheres[2][1] == 7 and not (wheres[0][2][1][1] == wheres[2][2][1][1] and wheres[0][1] == 7):
             if (wheres[0][2][1][1] == wheres[2][2][1][1] and wheres[0][1] == 2) or (wheres[0][1] == 7) or wheres[0][2][1][0]:
                 wheres[1] = "except_"
                 wheres[2][1] = 2
@@ -1106,7 +1161,7 @@ def except_inference(wheres,sq):
 
 
 
-def infer_group_for_exact_match(group_list,table_json,table_list,num_select,sq=None,agg_tables=[]):
+def infer_group_for_exact_match(group_list,table_json,table_list,num_select,sq=None,agg_tables=[],from_table_net=[]):
     """V1.2
     infer the intersect
     """
@@ -1115,29 +1170,39 @@ def infer_group_for_exact_match(group_list,table_json,table_list,num_select,sq=N
         select_no_agg_tables.add([n.lower() for n in table_json['table_names_original']].index(g.split(".")[0].lower()))
 
     if len(group_list) > 1:
+        if not from_table_net:
+            from_table_net = [[],[]]
+        net_fks = [fk for fks in from_table_net[0] for fk in fks]
+
         if len(select_no_agg_tables) == 1:
             t_idx = list(select_no_agg_tables)[0]
-            pk = primary_keys(table_json,t_idx)
+            pk = primary_keys(table_json,t_idx,pk_only=True)
             if pk >= 0:
                 return [table_json['table_column_names_original'][pk][1]]
             for col in group_list:
-                if "name" in col:
-                    return [col] 
+                col_idx = table_json['tc_fast'].index(col.lower())
+                if col_idx in net_fks:
+                    return [col]
+            for col in group_list:
+                if "name" in col and "firstname" not in col and "first_name" not in col and "lastname" not in col and "last_name" not in col and "forename" not in col and "surname" not in col:
+                    return [col]
         elif len(select_no_agg_tables) >= 2 and len(table_list) >= 2:
-            from_table_net,table_fk_list = get_table_network(table_json, table_list, None)
+            from_table_net,table_fk_list = get_table_network(table_json, table_list, None, group_list=group_list)
             if from_table_net:
                 return filter_PK(from_table_net,agg_tables,table_json,select_no_agg_tables)
-    elif sq and num_select == 1 and len(table_list) >= 2:
-        if sq.sub_sequence_type.count(1) == 1 and 0 not in sq.sub_sequence_type and sq.sub_sequence_type[0] == 1 and sq.pattern_tok[0][-1] in ["SC","STC","COL","BCOL","TABLE-COL"] and group_list:
+    elif sq and num_select == 1 and len(table_list) >= 2 and group_list and "lname" not in group_list[0] and "fname" not in group_list[0] and "lastname" not in group_list[0] and "firstname" not in group_list[0] and "l_name" not in group_list[0] and "f_name" not in group_list[0] and "last_name" not in group_list[0] and "first_name" not in group_list[0]:
+        if sq.sub_sequence_type.count(1) == 1 and 0 not in sq.sub_sequence_type and sq.sub_sequence_type[0] == 1 and sq.pattern_tok[0][-1] in ["SC","STC","COL","BCOL","TABLE-COL"]:
             pass
-        elif len(sq.sub_sequence_type) == 1 and "TABLE" not in sq.pattern_tok[0] and "ST" not in sq.pattern_tok[0] and group_list:
+        elif len(sq.sub_sequence_type) == 1 and "TABLE" not in sq.pattern_tok[0] and "ST" not in sq.pattern_tok[0]:
             pass
         else:
-            from_table_net,table_fk_list = get_table_network(table_json, table_list, None)
+            from_table_net,table_fk_list = get_table_network(table_json, table_list, None, group_list=group_list)
             if from_table_net:
                 return filter_PK(from_table_net,agg_tables,table_json,select_no_agg_tables)
     elif num_select == 1 and len(table_list) >= 2: 
-        from_table_net,table_fk_list = get_table_network(table_json, table_list, None)
+        if group_list and "name" not in group_list[0] and "title" not in group_list[0]:
+            return group_list
+        from_table_net,table_fk_list = get_table_network(table_json, table_list, None, group_list=group_list)
         if from_table_net:
             return filter_PK(from_table_net,agg_tables,table_json,select_no_agg_tables)
     elif not group_list and table_list:
@@ -1174,7 +1239,7 @@ def filter_PK(from_table_net,agg_tables,table_json,select_no_agg_tables):
                     re_col = fk[0]
                 elif not re_col and table_json['column_names'][fk[1]][0] in select_no_agg_tables:
                     re_col = fk[1]
-    return [table_json['table_column_names_original'][re_col][1]] if re_col else [table_json['table_column_names_original'][from_table_net[0][0][0]][1]]
+    return [table_json['tc_fast'][re_col]] if re_col else [table_json['tc_fast'][from_table_net[0][0][0]]]
 
 def get_agg_tables(sql_dict,table_json):
     agg_tables = [[],[]]
@@ -1199,8 +1264,11 @@ def get_agg_tables(sql_dict,table_json):
     return agg_tables
 
 
-def group_back_because_eva_bug_in_spider(groupby_list,table_json,agg_tables):
+def group_back_because_eva_bug_in_spider(groupby_list,table_json,agg_tables,or_groupby_list,from_table_net):
     if len(groupby_list) == 1:
+        if not from_table_net:
+            from_table_net = [[],[]]
+        net_fks = [fk for fks in from_table_net[0] for fk in fks]
         g_table,g_col = groupby_list[0].lower().split('.')
         g_col_idx = table_json["tc_fast"].index(groupby_list[0].lower())
         for t_name,t_idx in zip(agg_tables[0],agg_tables[1]):
@@ -1208,8 +1276,10 @@ def group_back_because_eva_bug_in_spider(groupby_list,table_json,agg_tables):
                 return groupby_list
             for fk in table_json['foreign_keys']:
                 if g_col_idx in fk and ((fk[0] == g_col_idx and table_json['column_names'][fk[1]][0] == t_idx) or (fk[1] == g_col_idx and table_json['column_names'][fk[0]][0] == t_idx)):
+                    if or_groupby_list and len(or_groupby_list) == 1 and ((fk[0] == g_col_idx and fk[1] in table_json["primary_keys"]) or (fk[0] != g_col_idx and fk[0] in table_json["primary_keys"])):
+                        return or_groupby_list
                     return [table_json["tc_fast"][fk[1]]] if fk[0] == g_col_idx else [table_json["tc_fast"][fk[0]]]
-            if g_col not in ['id','ids','name','names'] and g_table != t_name and t_name + "." + g_col in table_json["tc_fast"]:
+            if g_col not in ['id','ids','name','names'] and g_table != t_name and t_name + "." + g_col in table_json["tc_fast"] and table_json["tc_fast"].index(t_name + "." + g_col) in net_fks:
                 return [t_name + "." + g_col]
     return groupby_list
 
@@ -1259,7 +1329,7 @@ def infer_IUE_select_col(sql_dict,table_json,break_idx,top_sql_list,top_select_t
                         other_fk = other_fk_tmp
                     elif table_json['column_names_original'][old_c_idx][1] == table_json['column_names_original'][other_fk_tmp][1]:
                         other_fk = other_fk_tmp
-                    elif other_fk_tmp in table_json['primary_keys']:
+                    elif other_fk_tmp in table_json['original_primary_keys']:
                         other_fk = other_fk_tmp
         if other_fk > 0:
             return (sub_sql + table_json['table_column_names_original'][other_fk][1]).lower(), [table_json['table_names_original'][new_t_idx].lower()]
@@ -1280,8 +1350,23 @@ def infer_IUE_select_col(sql_dict,table_json,break_idx,top_sql_list,top_select_t
 
 
 
-def inference_sql(sql_dict, table_json, args, join_on_label=None, sq=None):
-    re_sql,_,__ = search_all_join_on(sql_dict, table_json, args, join_on_label, sq)
+def inference_sql(sql_dict, table_json, args, join_on_label=None, sq=None, return_with_join_on = False):
+    re_generate,re_sql,_,__ = search_all_join_on(sql_dict, table_json, args, join_on_label, sq, True)
+    if re_generate:
+        if re_generate == 1:
+            args_ = copy.deepcopy(args)
+            args_.iue2subquery = False
+        elif re_generate == 2:
+            args_ = copy.deepcopy(args)
+            args_.join2subquery = False
+        elif re_generate == 3:
+            args_ = copy.deepcopy(args)
+            args_.groupby2subquery = False
+        else:
+            args_ = args
+        re_generate,re_sql,_,__ = search_all_join_on(re_sql, table_json, args_, join_on_label, sq, False)
+    if return_with_join_on:
+        return re_sql,_,__
     return re_sql
 
 
@@ -1367,7 +1452,7 @@ def search_bcol(sq,table,where,sql_dict,where_i):
     """
     There is no boolean value in the question
     """
-    where_col_idx = table['tc_fast'].index(where[2][1][1])
+    where_col_idx = where[2][1][1] if where[2][1][1] not in table['tc_fast']  else table['tc_fast'].index(where[2][1][1])
     for (i_t,type_), pts in zip(enumerate(sq.sub_sequence_type),sq.pattern_tok):
         if "BCOL" in pts:
             for j,pt in enumerate(pts):
@@ -1406,13 +1491,15 @@ def search_bcol(sq,table,where,sql_dict,where_i):
         where[3] = "'"+table['data_samples'][where_col_idx][0]+"'" if type(table['data_samples'][where_col_idx][0]) == str else table['data_samples'][where_col_idx][0]
 
 
-def search_db(sq,table,where,used_value):
-    where_col_idx = table['tc_fast'].index(where[2][1][1])
+def search_db(sq,table,where,used_value,sq_sub_idx=-1):
+    where_col_idx = where[2][1][1] if where[2][1][1] not in table['tc_fast']  else table['tc_fast'].index(where[2][1][1])
 
     for v in table['data_samples'][where_col_idx]:
         if where[3] == '"terminal"' and " " + str(v).lower() + " " in " " + sq.question_or.lower() + " ":
             vl = str(v).lower()
             for i, sts in enumerate(sq.sub_sequence_toks):
+                if sq_sub_idx >= 0 and sq_sub_idx != i:
+                    continue
                 if where[3] == '"terminal"':
                     for j, st in enumerate(sts):
                         if [i,j] not in used_value and st.lower() == vl:
@@ -1425,6 +1512,8 @@ def search_db(sq,table,where,used_value):
             if where[3] == '"terminal"' and type(v) == str :
                 vl = v.lower()
                 for i, sts in enumerate(sq.sub_sequence_toks):
+                    if sq_sub_idx >= 0 and sq_sub_idx != i:
+                        continue
                     if where[3] == '"terminal"':
                         for j, st in enumerate(sts):
                             if len(st) >= 3 and (([i,j] not in used_value and " " not in v and (st.lower().startswith(vl) or vl.startswith(st.lower()))) or (" " in v and [i,j] not in used_value and vl.startswith(st.lower()+" ") and "DB" in sq.pattern_tok[i][j])):
@@ -1441,7 +1530,7 @@ def search_db(sq,table,where,used_value):
 
 def no_more_num_cond(wheres,i,table_json):
     for w_i,where in enumerate(wheres):
-        if w_i > i and type(where) == list and where[2][1][1] in table_json['tc_fast'] and table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]:
+        if w_i > i and type(where) == list and ((where[2][1][1] in table_json['tc_fast'] and table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]) or ( type(where[2][1][1]) == int and table_json['column_types'][where[2][1][1]] in ["number","year","time"])):
             return False
     return True
 
@@ -1454,7 +1543,7 @@ def get_num_for_limit(pts,sq,sql_dict,i,table_json):
         num = str2num(sq.sub_sequence_toks[i][num_idx])
     if num > 10 and sql_dict['where']:
         for where in sql_dict['where']:
-            if type(where) == list and where[2][1][1] in table_json['tc_fast'] and table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]:
+            if type(where) == list and ((where[2][1][1] in table_json['tc_fast'] and table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]) or ( type(where[2][1][1]) == int and table_json['column_types'][where[2][1][1]] in ["number","year","time"])):
                 num = 0
     return num_idx,num
 
@@ -1561,7 +1650,7 @@ def generate_where_values(i,pts,sq,used_value,patterns,where,table_json,sql_dict
             used_value.append([i,j])
             return True,re_num,used_value
         elif patterns == ["TEXT_DB","DB"] and pt == "DB" and [i,j] not in used_value:
-            if where[2][1][1] in table_json['tc_fast'] and natsql_idx_to_table2_idx(table_json['tc_fast'].index(where[2][1][1]),table_json) in sq.full_db_match[i][j]:
+            if (where[2][1][1] in table_json['tc_fast'] and natsql_idx_to_table2_idx(table_json['tc_fast'].index(where[2][1][1]),table_json) in sq.full_db_match[i][j]) or (type(where[2][1][1]) == int and natsql_idx_to_table2_idx(where[2][1][1],table_json) in sq.full_db_match[i][j]):
                 re_num,used_value = add_one_value(pt,"DB",pts,sq,used_value,i,j)
                 return True,re_num,used_value
         elif ((patterns == ["DB"] and pt == "DB") or (patterns == ["SDB"] and pt == "SDB") or (patterns == ["PDB"] and pt == "PDB") or (patterns == ["UDB"] and pt == "UDB") or (patterns == ["NN"] and pt == "NN")) and [i,j] not in used_value:
@@ -1582,7 +1671,7 @@ def generate_where_values(i,pts,sq,used_value,patterns,where,table_json,sql_dict
             return True,re_num,used_value
     return False,0,used_value
 
-def analyse_num(sq,used_value,sql_dict,w_i,where,available_pattern,table_json,focus_on_idx=-1):
+def analyse_num(sq,used_value,sql_dict,w_i,where,available_pattern,table_json,sq_sub_idx=-1):
     def set_2nd_between_value(num,sql_dict,w_i):
         if type(num) == int and num < sql_dict['where'][w_i][3]:
             sql_dict['where'][w_i][4] = sql_dict['where'][w_i][3]
@@ -1594,7 +1683,7 @@ def analyse_num(sq,used_value,sql_dict,w_i,where,available_pattern,table_json,fo
     num_count = 0
     success = False
     for (i_t,type_), pts in zip(enumerate(sq.sub_sequence_type),sq.pattern_tok):
-        if focus_on_idx >= 0 and focus_on_idx != i_t:
+        if sq_sub_idx >= 0 and sq_sub_idx != i_t:
             continue
         there_is_available_pattern = False
         for ap in available_pattern:
@@ -1651,9 +1740,9 @@ def fill_values(sql_dict, sq, table_json):
                             used_value.append([i,num_idx])
     
     for i,where in enumerate(sql_dict['where']):
-        if type(where) == list and where[2][1][1] not in table_json['tc_fast']:
+        if type(where) != list or where[2][1][1] not in table_json['tc_fast']:
             continue
-        elif type(where) == list and where[1] in [1,3,4,5,6,2,7,14] and (where[1] in [1,3,4,5,6] or where[2][1][0] or table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]) and where[3] == '"terminal"':
+        elif where[1] in [1,3,4,5,6,2,7,14] and (where[1] in [1,3,4,5,6] or where[2][1][0] or table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["number","year","time"]) and where[3] == '"terminal"':
             success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["NUM","DATE","YEAR"],table_json)
             if not success:
                 success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["DB","SDB"],table_json)
@@ -1670,7 +1759,7 @@ def fill_values(sql_dict, sq, table_json):
                     sql_dict['where'][i][3] = table_json['data_samples'][table_json['tc_fast'].index(where[2][1][1])][0]
                 else:
                     sql_dict['where'][i][3] = 1
-        elif type(where) == list and where[1] in [2,7] and  table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["text"] and where[3] == '"terminal"':
+        elif where[1] in [2,7] and  table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["text"] and where[3] == '"terminal"':
             success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["TEXT_DB","DB"],table_json)
             if not success and no_more_num_cond(sql_dict['where'],i,table_json):
                 success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["DB_NUM","NUM"],table_json)
@@ -1681,9 +1770,9 @@ def fill_values(sql_dict, sq, table_json):
                 success = True
     # BOOL
     for i,where in enumerate(sql_dict['where']):
-        if type(where) == list and where[2][1][1] not in table_json['tc_fast']:
+        if type(where) != list or where[2][1][1] not in table_json['tc_fast']:
             continue
-        elif type(where) == list and where[1] in [2,7] and  table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["boolean"] and where[3] == '"terminal"':
+        elif where[1] in [2,7] and  table_json['column_types'][table_json['tc_fast'].index(where[2][1][1])] in ["boolean"] and where[3] == '"terminal"':
             success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["DB"],table_json)
             if not success:
                 success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["PDB"],table_json)
@@ -1715,9 +1804,9 @@ def fill_values(sql_dict, sq, table_json):
                         search_bcol(sq,table_json,where,sql_dict,i)
 
     for i,where in enumerate(sql_dict['where']):
-        if type(where) == list and where[2][1][1] not in table_json['tc_fast']:
+        if type(where) != list or where[2][1][1] not in table_json['tc_fast']:
             continue
-        elif type(where) == list and where[1] in [9,13] and where[3] == '"terminal"':
+        elif where[1] in [9,13] and where[3] == '"terminal"':
             success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["PDB"],table_json)
             if not success:
                 success,used_value,sql_dict = analyse_num(sq,used_value,sql_dict,i,where,["UDB"],table_json)
@@ -1749,7 +1838,7 @@ def fill_values(sql_dict, sq, table_json):
                 if where[3][1:-1].isdigit() or " start with " in sq.question_or or " starting with " in sq.question_or or " started with " in sq.question_or or " starts with " in sq.question_or or " begin with " in sq.question_or or " beginning with " in sq.question_or or " began with " in sq.question_or or " begins with " in sq.question_or or " start from " in sq.question_or or " starts from " in sq.question_or or " starting from " in sq.question_or or " started from " in sq.question_or or " begin from " in sq.question_or or " begins from " in sq.question_or or " began from " in sq.question_or or " beginning from " in sq.question_or:
                     where[3] = where[3][0:-1] + "%" + where[3][-1]
                 elif " end with " in sq.question_or or " ending with " in sq.question_or or " ended with " in sq.question_or or " ends with " in sq.question_or or " end by " in sq.question_or or " ending by " in sq.question_or or " ended by " in sq.question_or or " ends by " in sq.question_or:
-                    where[3] =  where[3][0] + "%" + where[3][1:0]
+                    where[3] =  where[3][0] + "%" + where[3][1:]
                 else:
                     where[3] = where[3][0] + "%" + where[3][1:-1] + "%" + where[3][-1]
 
@@ -1783,8 +1872,8 @@ def IUE2Where(sql_dict,table_json):
                         if tor.lower() == t:
                             t_idx = j
                             break
-                    for col in enumerate(table_json["column_names"]):
-                        if col[0] == t_idx and col[1].lower() == table_json["column_names"][where_col_idx].lower():
+                    for col in table_json["column_names"]:
+                        if col[0] == t_idx and col[1].lower() == table_json["column_names"][where_col_idx][1].lower():
                             tmp_take_tbl[i] = True
                             new_where_cond[i] = copy.deepcopy(sql_dict["where"][w_idx])
                             new_where_cond[i][2][1][1] = table_json['table_column_names_original'][j][1]
@@ -1856,22 +1945,142 @@ def IUE2Where(sql_dict,table_json):
     if iue_where[1]:
         sql_dict['where'].extend(iue_where[1])
 
-def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
+
+def iue2subquery(from_table_net,select_table_list,table_json,groupby_list,where_left_col_list,sql_dict):
+    t_id_list = []
+    for t in select_table_list:
+        t_id_list.append(table_json['table_orig_low'].index(t))
+    if (sql_dict['where'][1] in ["except_","intersect_","union_"]):
+        pass
+    elif len(sql_dict['where']) == 5 and sql_dict['where'][3] in ["except_","intersect_","union_"] and type(sql_dict['where'][0]) == list and sql_dict['where'][0][2][1][1].lower() in table_json['tc_fast']:
+        t_id_list.append(table_json['column_names'][table_json['tc_fast'].index(sql_dict['where'][0][2][1][1].lower())][0])
+    if len(sql_dict['where']) == 5 and len(set(t_id_list)) == 1 and sql_dict['where'][3] in ["except_","intersect_","union_"]:
+        insert_idx = 2
+    else:
+        insert_idx = 0
+    for fks in from_table_net[0]:
+        if table_json['column_names'][fks[0]][0]  in t_id_list and table_json['column_names'][fks[1]][0] not in t_id_list :
+            sql_dict['where'].insert(insert_idx,"and")
+            sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,table_json['tc_fast'][fks[1]],None],None])
+            return True,sql_dict
+        if table_json['column_names'][fks[1]][0]  in t_id_list and table_json['column_names'][fks[0]][0] not in t_id_list :
+            
+            sql_dict['where'].insert(insert_idx,"and")
+            sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,table_json['tc_fast'][fks[0]],None],None])
+            return True,sql_dict
+    if len(sql_dict['select'][1]) == 1 and (sql_dict['select'][1][0][0] or sql_dict['select'][1][0][1][1][0]) and len(sql_dict['where']) in [3,5] and (sql_dict['where'][1] in ["except_","intersect_","union_"] or (len(sql_dict['where']) == 5 and sql_dict['where'][3] in ["except_","intersect_","union_"])):
+        sql_dict['where'].insert(insert_idx,"and")
+        sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,sql_dict['where'][insert_idx+1][2][1][1].split(".")[0]+".*",None],None])
+        return True,sql_dict
+
+    return False,sql_dict
+
+
+
+def join2subquery(from_table_net,select_table_list,table_json,groupby_list,sql_dict):
+    t_id_list = []
+    for t in select_table_list:
+        t_id_list.append(table_json['table_orig_low'].index(t))
+    insert_idx = 0
+    for i, w in enumerate(sql_dict["where"]):
+        if type(w) == list and w[2][1][1].lower() in table_json['tc_fast'] and table_json['column_names'][table_json['tc_fast'].index(w[2][1][1].lower())][0] in t_id_list:
+            insert_idx += 2
+        elif type(w) == list:
+            break
+
+    group_col_idx = -1
+    if len(groupby_list) == 1:
+        group_col_idx = table_json['tc_fast'].index(groupby_list[0].lower())
+    
+    if len(t_id_list) >= 2:
+        bridge_table = dict()
+        for fks in from_table_net[0]:
+            if table_json['column_names'][fks[0]][0] not in bridge_table:
+                bridge_table[table_json['column_names'][fks[0]][0]] = set([fks[0]])
+            else:
+                bridge_table[table_json['column_names'][fks[0]][0]].add(fks[0])
+            if table_json['column_names'][fks[1]][0] not in bridge_table:
+                bridge_table[table_json['column_names'][fks[1]][0]] = set([fks[1]])
+            else:
+                bridge_table[table_json['column_names'][fks[1]][0]].add(fks[1])
+        bridge_table = [ k  for k in bridge_table if len(bridge_table[k]) > 1]
+    else:
+        bridge_table = []
+
+    for fks in from_table_net[0]:
+        if fks[0] in table_json['primary_keys'] and fks[1] not in table_json['primary_keys'] and table_json['column_names'][fks[0]][0] in t_id_list and fks[1] not in table_json['unique_fk'] and table_json['column_names'][fks[1]][0] not in t_id_list and table_json['column_names'][fks[1]][0] not in bridge_table and group_col_idx not in fks:
+            table_idx = table_json['column_names'][fks[1]][0]
+            sql_dict['where'].insert(insert_idx,"and")
+            sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,table_json['tc_fast'][fks[1]],None],None])
+            return True,sql_dict
+        if fks[1] in table_json['primary_keys'] and fks[0] not in table_json['primary_keys'] and table_json['column_names'][fks[1]][0] in t_id_list and fks[0] not in table_json['unique_fk'] and table_json['column_names'][fks[0]][0] not in t_id_list and table_json['column_names'][fks[0]][0] not in bridge_table and group_col_idx not in fks:
+            table_idx = table_json['column_names'][fks[0]][0]
+            sql_dict['where'].insert(insert_idx,"and")
+            sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,table_json['tc_fast'][fks[0]],None],None])
+            return True,sql_dict
+    return False,sql_dict
+
+
+def groupby2subquery(from_table_net,select_table_list,table_json,groupby_list,sql_dict):
+    group_col_idx = table_json['tc_fast'].index(groupby_list[0].lower())
+    t_id_list = []
+    for t in select_table_list:
+        t_id_list.append(table_json['table_orig_low'].index(t))
+    for fks in from_table_net[0]:
+        if group_col_idx in fks:
+            return False,sql_dict
+    if table_json['column_names'][group_col_idx][0] not in t_id_list:
+        pass
+    elif group_col_idx in table_json['primary_keys'] or (len(sql_dict['select'][1]) == 1 and sql_dict['select'][1][0][1][1][1].lower() == groupby_list[0].lower()):
+        return False,sql_dict
+    else:
+        pass
+    insert_idx = 0
+    for i, w in enumerate(sql_dict["where"]):
+        if type(w) == list and not w[2][1][0]:
+            insert_idx += 2
+        elif type(w) == list:
+            break
+    sql_dict['where'].insert(insert_idx,"and")
+    sql_dict['where'].insert(insert_idx,[False,8,[0,[0,"@.@",False],None],[0,table_json['tc_fast'][group_col_idx],None],None]) 
+    sql_dict['groupBy'] = []
+    return True,sql_dict
+
+
+def simplify_join(from_table_net,select_table_list,table_json,groupby_list,sql_dict):
+    if sql_dict['where'] and type(sql_dict['where'][0]) == list and sql_dict['where'][0][1] == 12 and sql_dict['where'][0][2][1][1] == sql_dict['where'][0][3][1]:
+        where_col_idx = table_json['tc_fast'].index(sql_dict['where'][0][2][1][1].lower())
+        need_simplify = False
+        other_col = 0
+        for fks in from_table_net[0]:
+            if where_col_idx in fks:
+                need_simplify = True
+                other_col = fks[1] if where_col_idx == fks[0] else fks[0]
+        if need_simplify:
+            sql_dict['where'][0][2][1][1] = table_json['tc_fast'][other_col]
+            return True,sql_dict
+    return False,sql_dict        
+    
+
+
+def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None, first_round=True):
     """
     modified from NatSQL V1.0 inference code.
     """
     if not sql_dict:
-        return " ",[],sql_dict
+        return 0," ",[],sql_dict
+    sql_dict_orig = copy.deepcopy(sql_dict)
     all_from = []
     global globe_join_on_label_count
     globe_join_on_label_count = 0
     
+    top_groupby_list = []
     groupby_list = []
     groupby_top = ""
     add_top_group = True
     re_sql = "select distinct " if sql_dict['select'][0] else "select "
     orderby_sql,table_list,agg_in_order = ("",[],False)
-
+    agg_in_select = False
     # Get table info from select column
     for column in sql_dict['select'][1]:
         table = column[1][1][1].split('.')[0].lower()
@@ -1879,18 +2088,22 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
             table_list.append(table)
         select_unit = select_unit_back(column)
         if not (column[0] or column[1][1][0]):
-            groupby_list.append(select_unit)
+            if select_unit != '*':
+                top_groupby_list.append(column[1][1][1].lower() if column[1][0] else select_unit)  
+        else:
+            agg_in_select = True
         re_sql += select_unit + ' , '
     re_sql = re_sql[:-3]
     top_select_table_list = copy.deepcopy(table_list)
-
+    
     if sql_dict['union'] or sql_dict['intersect']:
         IUE2Where(sql_dict,table_json)
     sql_dict['where'] = intersect_where_order(sql_dict['where'],top_select_table_list)
-    sql_dict['where'] = except_inference(sql_dict['where'],sq)
-    sql_dict['where'] = intersect_inference(sql_dict['where'],sq)
-    sql_dict['where'] = union_inference(sql_dict['where'],sq,table_json,top_select_table_list)
-
+    if first_round:
+        sql_dict['where'] = except_inference(sql_dict['where'],sq)
+        sql_dict['where'] = intersect_inference(sql_dict['where'],sq)
+        sql_dict['where'] = union_inference(sql_dict['where'],sq,table_json,top_select_table_list)
+    
     try:
         if args.fill_value:
             sql_dict = fill_values(sql_dict, sq, table_json)
@@ -1902,15 +2115,15 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
                 table_list.append(t[1])
 
     # Add table info to select column
-    break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list = get_where_column(sql_dict, table_list, 0, SQL_TOP, table_json, args)
-    if " * not in " in sql_where or " * in " in sql_where and len(sql_dict['where']) - break_idx >= 3 and sql_dict['where'][break_idx][1] in [12,8] and sql_dict['where'][break_idx+2][2][1][1].split(".")[0] != sql_dict['where'][break_idx][3][1].split(".")[0]:
+    break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list,top_left_col_list = get_where_column(sql_dict, table_list, 0, SQL_TOP, table_json, args)
+    if (" * not in " in sql_where or " * in " in sql_where) and len(sql_dict['where']) - break_idx >= 3 and sql_dict['where'][break_idx][1] in [12,8] and sql_dict['where'][break_idx+2][2][1][1].split(".")[0] != sql_dict['where'][break_idx][3][1].split(".")[0]:
         next_table_list = [sql_dict['where'][break_idx][3][1].split(".")[0]]
         sql_dict['where'][break_idx][2][1][1] = "@.@"
         if sql_dict['where'][break_idx+2][2][1][1].split(".")[0] != "@":
             sql_dict['where'][break_idx][3][1] = sql_dict['where'][break_idx+2][2][1][1].split(".")[0]+".*"
         else:
             sql_dict['where'][break_idx][3][1] = sql_dict['where'][break_idx+2][3][1].split(".")[0]+".*"
-        break_idx,_,next_sql,sql_where,sql_having,orderby_sql_,__ = get_where_column(sql_dict, table_list, 0, SQL_TOP, table_json, args)
+        break_idx,_,next_sql,sql_where,sql_having,orderby_sql_,__,top_left_col_list = get_where_column(sql_dict, table_list, 0, SQL_TOP, table_json, args)
 
 
     if break_idx < 0 or next_sql == SQL_TOP or (sql_dict['orderBy'] and not sql_dict['limit']):
@@ -1919,31 +2132,51 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
             if order_t.lower() not in table_list:
                 table_list.append(order_t.lower())
     
+    orderby_sql += orderby_sql_
+    from_table_net,table_fk_list = get_table_network(table_json, table_list, join_on_label, sq=sq, sql_dict=sql_dict, group_list=top_left_col_list+top_groupby_list if top_groupby_list else [] )
+    from_table_netss,_ = get_table_network(table_json, table_list, join_on_label, False, group_list=top_left_col_list+top_groupby_list if top_groupby_list else [])
+    all_from.append(from_table_netss)
 
     if sql_dict['groupBy']: #V1.1:
-        groupby_top = " group by " + ", ".join([col_unit_back(gBy) for gBy in sql_dict['groupBy']])
+        groupby_list = [col_unit_back(gBy) for gBy in sql_dict['groupBy']]
+        groupby_top = " group by " + ", ".join(groupby_list)
         for gBy in sql_dict['groupBy']:
             table_list.append(gBy[1].split(".")[0])
         table_list = list(set(table_list))
         if break_idx == SQL_TOP:
             add_top_group = False
-        if (len(groupby_list) != len(sql_dict['select'][1]) and groupby_list) or sql_having.strip() != '' or (agg_in_order and groupby_list) or orderby_sql_.strip():
+        if (len(top_groupby_list) != len(sql_dict['select'][1]) and top_groupby_list) or sql_having.strip() != '' or (agg_in_order and top_groupby_list) or orderby_sql_.strip():
             add_top_group = True
-    elif not args.not_infer_group and (len(groupby_list) != len(sql_dict['select'][1]) and groupby_list) or sql_having.strip() != '' or (agg_in_order and groupby_list) or orderby_sql_.strip():
+    elif not args.not_infer_group and (len(top_groupby_list) != len(sql_dict['select'][1]) and top_groupby_list) or sql_having.strip() != '' or (agg_in_order and top_groupby_list) or orderby_sql_.strip():
         table_list = list(set(table_list))
-        if args.group_for_exact_match and (len(groupby_list) > 1 or len(table_list) > 1 or len(groupby_list) == 0):
+        if args.group_for_exact_match and (len(top_groupby_list) > 1 or len(table_list) > 1 or len(top_groupby_list) == 0):
             agg_tables = get_agg_tables(sql_dict,table_json)
-            groupby_list = infer_group_for_exact_match(groupby_list,table_json,table_list,len(sql_dict['select'][1]),sq,agg_tables)
-            groupby_list = group_back_because_eva_bug_in_spider(groupby_list,table_json,agg_tables)
-        groupby_top = " group by " + ",".join(groupby_list)
+            groupby_list = infer_group_for_exact_match(top_groupby_list,table_json,table_list,len(sql_dict['select'][1]),sq,agg_tables,from_table_net)
+            groupby_list = group_back_because_eva_bug_in_spider(groupby_list,table_json,agg_tables,top_groupby_list,from_table_net)
+            groupby_top = " group by " + ",".join(groupby_list)
+        else:
+            groupby_top = " group by " + ",".join(top_groupby_list)
     else:
         table_list = list(set(table_list))
-
-    orderby_sql += orderby_sql_
-    from_table_net,table_fk_list = get_table_network(table_json, table_list, join_on_label, sq=sq, sql_dict=sql_dict)
-    from_table_netss,_ = get_table_network(table_json, table_list, join_on_label, False)
-    all_from.append(from_table_netss)
     
+    if top_groupby_list and not groupby_list:
+        groupby_list = top_groupby_list
+    if args.iue2subquery and agg_in_select and ((len(sql_dict['where']) in [3,5] and sql_dict['where'][1] in ["except_","intersect_","union_"]) or (len(sql_dict['where']) == 5 and sql_dict['where'][3] in ["except_","intersect_","union_"])):
+        success,sql_dict = iue2subquery(from_table_net,top_select_table_list,table_json,groupby_list,top_left_col_list,sql_dict)
+        if success:
+            return 1,sql_dict,None,None
+    if args.join2subquery and agg_in_select and not sql_dict['select'][0] and not sql_dict['limit'] and not (sql_dict['where'] and type(sql_dict['where'][0])==list and sql_dict['where'][0][1] in [12,8]):
+        success,sql_dict_orig = join2subquery(from_table_net,top_select_table_list,table_json,groupby_list,sql_dict_orig)
+        if success:
+            return 2,sql_dict_orig,None,None
+    if args.groupby2subquery and groupby_top and len(groupby_list) == 1 and not agg_in_select:
+        success,sql_dict_orig = groupby2subquery(from_table_net,top_select_table_list,table_json,groupby_list,sql_dict)
+        if success:
+            return 3,sql_dict_orig,None,None
+    success,sql_dict = simplify_join(from_table_net,top_select_table_list,table_json,groupby_list,sql_dict)
+    if success:
+        return 4,sql_dict,None,None
+
     top_sql_list = [re_sql]
     re_sql += create_from_table(from_table_net,table_json['table_names_original'], table_json['table_column_names_original'], table_fk_list, table_list=table_list)
     if add_top_group:
@@ -1959,7 +2192,7 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
             previous_table_list = table_list
             table_list = next_table_list#V1.2
             if next_sql == SQL_TOP:
-                if type(sql_dict['where'][0]) == str and sql_dict['where'][1][2][1][1] == "@.@" and sql_dict['where'][1][1] == 10 and  ".*" in sql_dict['where'][1][3][1]:
+                if type(sql_dict['where'][0]) == str and sql_dict['where'][1][2][1][1] == "@.@" and sql_dict['where'][1][1] == 10:# and  ".*" in sql_dict['where'][1][3][1]:
                     # V1.4 NatSQL extension: where IUE @.@ is table.* :
                     if not (len(sql_dict['where']) > 3 and sql_dict['where'][2] == "and"):
                         sub_sql, table_list = infer_IUE_select_col(sql_dict,table_json,break_idx,top_sql_list,top_select_table_list)
@@ -1984,13 +2217,13 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
                 if '.' not in select_column:
                     sub_sql_select_table_list = [sql_dict['where'][break_idx][3][1].split(".")[0].lower()]
                 else:
-                    sub_sql_select_table_list = [select_column.split(".")[0].lower()]
+                    sub_sql_select_table_list = [sql_dict['where'][break_idx][3][1].split(".")[0].lower()]#[select_column.split(".")[0].lower()]
                 if sql_dict['where'][break_idx][3][1].split('.')[0].lower() not in table_list:
                     table_list.append(sql_dict['where'][break_idx][3][1].split('.')[0].lower())
                 start_new_top_sql = False
 
             previous_break_idx = break_idx
-            break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list = get_where_column(sql_dict, table_list, break_idx + 1, next_sql, table_json, args)
+            break_idx,table_list,next_sql,sql_where,sql_having,orderby_sql_,next_table_list,__ = get_where_column(sql_dict, table_list, break_idx + 1, next_sql, table_json, args)
             if args.orderby_to_subquery and not orderby_sql_ and not (previous_break_idx > 1 and sql_dict["where"][previous_break_idx-1] == "sub"):
                 orderby_sql_, table_list = orderby_to_subquery(sql_dict,table_list) #v1.1
 
@@ -2043,5 +2276,5 @@ def search_all_join_on(sql_dict, table_json, args, join_on_label=None, sq=None):
             re_sql += sql
 
     re_sql += orderby_sql
-
-    return re_sql,all_from,sql_dict
+    
+    return 0,re_sql,all_from,sql_dict

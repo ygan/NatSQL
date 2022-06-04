@@ -1,5 +1,5 @@
-from natsql2sql.preprocess.table_match import return_column_match
-from natsql2sql.preprocess.utils import str_is_date
+from .table_match import return_column_match
+from .utils import str_is_date
 
 def col_match_not_in_table(match,table_idxs,schema):
     if match:

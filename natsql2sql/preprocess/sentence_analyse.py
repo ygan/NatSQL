@@ -1,20 +1,20 @@
 import json,editdistance
 import copy
 import re
-from natsql2sql.preprocess.TokenString import get_spacy_tokenizer,TokenString,SToken
-from natsql2sql.preprocess.table_match import return_table_name,return_column_match
-from natsql2sql.preprocess.sq import SubQuestion,QuestionSQL
-from natsql2sql.preprocess.others_pattern import pattern_reconize,pattern_recomand,get_col_from_related_word,get_AWD_column
-from natsql2sql.preprocess.utils import look_for_table_idx,str_is_date,str_is_num,get_all_table,get_punctuation_word
-from natsql2sql.preprocess.Schema_Token import Schema_Token
-from natsql2sql.preprocess.pattern_question_type import *
-from natsql2sql.preprocess.match import S_ADJ_WORD_DIRECTION,ABSOLUTELY_GRSM_DICT,A_ADJ_WORD_DIRECTION,SELECT_FIRST_WORD,SYNONYM
-from natsql2sql.preprocess.pattern_question_type import PATTERNS_TOKS,PATTERN_FUN
-from natsql2sql.preprocess.db_match import DBEngine,get_database_string
-from natsql2sql.preprocess.stemmer import MyStemmer
-from natsql2sql.preprocess.match import ABSOLUTELY_GRSM_DICT,NEGATIVE_WORDS
-from natsql2sql.preprocess.db_match import datebase_match_tables
-from natsql2sql.preprocess.match import COUNTRYS_DICT
+from .TokenString import get_spacy_tokenizer,TokenString,SToken
+from .table_match import return_table_name,return_column_match
+from .sq import SubQuestion,QuestionSQL
+from .others_pattern import pattern_reconize,pattern_recomand,get_col_from_related_word,get_AWD_column
+from .utils import look_for_table_idx,str_is_date,str_is_num,get_all_table,get_punctuation_word
+from .Schema_Token import Schema_Token
+from .pattern_question_type import *
+from .match import S_ADJ_WORD_DIRECTION,ABSOLUTELY_GRSM_DICT,A_ADJ_WORD_DIRECTION,SELECT_FIRST_WORD,SYNONYM
+from .pattern_question_type import PATTERNS_TOKS,PATTERN_FUN
+from .db_match import DBEngine,get_database_string
+from .stemmer import MyStemmer
+from .match import ABSOLUTELY_GRSM_DICT,NEGATIVE_WORDS
+from .db_match import datebase_match_tables
+from .match import COUNTRYS_DICT
 
 NO_BREAK = 0
 BREAK_PREP = 1
@@ -1112,7 +1112,7 @@ def add_col_analyze(sentences, table_matchs, list_idxs, schema, sub_q, q_sql, to
         ts = TokenString(None,sub_q.question_tokens[list_idx])
         full_match = col_match_main(tables,ts,schema)
         previous_col_match.append(full_match)
-        from natsql2sql.preprocess.pattern_question_type import ADD_COL_PATTERNS as PATTERNS_TOKS,ADD_COL_PATTERN_FUN as PATTERN_FUN
+        from .pattern_question_type import ADD_COL_PATTERNS as PATTERNS_TOKS,ADD_COL_PATTERN_FUN as PATTERN_FUN
         pr,db_match = pattern_reconize(ts,table_match,full_match,sub_q.sequence_entt[list_idx],schema,tables,PATTERNS_TOKS,PATTERN_FUN)
         if list_idx in full_db_match.keys() and len(full_db_match[list_idx]) == len(db_match) :
             db_match = full_db_match[list_idx]

@@ -2,11 +2,11 @@ import sqlite3,os
 import re
 from functools import lru_cache
 from config import DATABASE_PATH
-from natsql2sql.preprocess.utils import str_is_num,str_is_special_num,get_punctuation_word
-from natsql2sql.preprocess.Schema_Token import Schema_Token
-from natsql2sql.preprocess.TokenString import lemmatization
-from natsql2sql.preprocess.match import ALL_SPECIAL_WORD
-from natsql2sql.preprocess.utils import str_is_num
+from .utils import str_is_num,str_is_special_num,get_punctuation_word
+from .Schema_Token import Schema_Token
+from .TokenString import lemmatization
+from .match import ALL_SPECIAL_WORD
+from .utils import str_is_num
 
 class DBEngine:
     DB_SHARE = None

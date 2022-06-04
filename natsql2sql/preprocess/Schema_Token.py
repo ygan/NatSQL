@@ -1,5 +1,5 @@
-from natsql2sql.preprocess.match import AGG_WORDS,AGG_OPS,INFORMATION_WORDS,COUNTRYS
-from natsql2sql.preprocess.stemmer import MyStemmer
+from .match import AGG_WORDS,AGG_OPS,INFORMATION_WORDS,COUNTRYS
+from .stemmer import MyStemmer
 
 import copy
 

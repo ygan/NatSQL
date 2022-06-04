@@ -24,7 +24,7 @@ if [ ! -d "data/database/academic" ];then
 fi
 
 
-python table_transform.py --in_file data/tables.json --out_file NatSQLv1_6/tables_for_natsql.json --correct_col_type --remove_start_table  --analyse_same_column --table_transform
-python table_transform.py --in_file data/tables.json --out_file NatSQLv1_6/tables.json --correct_col_type  --remove_start_table --seperate_col_name --analyse_same_column --add_debug_col
+python table_transform.py --in_file data/tables.json --out_file NatSQLv1_6/tables_for_natsql.json --correct_col_type --remove_start_table  --analyse_same_column --table_transform --correct_primary_keys --use_extra_col_types
+python table_transform.py --in_file data/tables.json --out_file NatSQLv1_6/tables.json --correct_col_type  --remove_start_table --seperate_col_name --analyse_same_column --add_debug_col --use_extra_col_types
 python punkt.py
 python generate_spider_examples_with_natsql.py

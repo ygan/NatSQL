@@ -1,10 +1,10 @@
 import json
 import re
-from natsql2sql.preprocess.TokenString import TokenString
-from natsql2sql.preprocess.others_pattern import pattern_reconize,pattern_recomand,one_col_match,DISTINCT_WORDS
-from natsql2sql.preprocess.col_match import of_for_structure_in_col, col_match_main
-from natsql2sql.preprocess.utils import look_for_table_idx, construct_select_data
-from natsql2sql.preprocess.Schema_Token import Schema_Token
+from .TokenString import TokenString
+from .others_pattern import pattern_reconize,pattern_recomand,one_col_match,DISTINCT_WORDS
+from .col_match import of_for_structure_in_col, col_match_main
+from .utils import look_for_table_idx, construct_select_data
+from .Schema_Token import Schema_Token
 
 
 

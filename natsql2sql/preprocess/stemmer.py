@@ -1,5 +1,5 @@
 import nltk
-from natsql2sql.preprocess.match import ALL_JJS
+from .match import ALL_JJS
 
 DICT = {"weight":"weigh",
 "won":"win",
